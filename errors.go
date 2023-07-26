@@ -3,8 +3,11 @@ package weiyunsdkgo
 import "errors"
 
 var (
-	ErrTokenExpiration = errors.New("token expiration")
-	ErrTokenIsNil      = errors.New("token is nil")
+	ErrCode403 = errors.New("http code 403")
+
+	ErrTokenExpiration  = errors.New("token expiration")
+	ErrTokenIsNil       = errors.New("token is nil")
+	ErrCookieExpiration = errors.New("the login cookie is invalid, please login in again")
 )
 
 /*

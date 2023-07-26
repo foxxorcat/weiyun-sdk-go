@@ -2,12 +2,7 @@ package weiyunsdkgo
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-)
-
-var (
-	ErrCode403 = errors.New("http code 403")
 )
 
 type RespHeader struct {
@@ -31,7 +26,7 @@ type Resp struct {
 	Code int    `json:"ret"`
 	Msg  string `json:"msg"`
 
-	Data struct {
+	Data *struct {
 		RspHeader RespHeader `json:"rsp_header"`
 		RspBody   struct {
 			RspMsgBody json.RawMessage `json:"RspMsg_body"`

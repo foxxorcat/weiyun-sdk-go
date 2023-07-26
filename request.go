@@ -166,7 +166,7 @@ func (c *WeiYunClient) refreshCtoken() error {
 
 	// 302跳转
 	if resp.RawResponse.Request.URL != resp.Request.RawRequest.URL {
-		return errors.New("the login cookie is invalid, please login in again")
+		return ErrCookieExpiration
 	}
 	return nil
 }
@@ -180,6 +180,14 @@ func (c *WeiYunClient) Request(protocol, name string, cmd int, data Json, resp a
 	if err == ErrCode403 {
 		if atomic.CompareAndSwapInt32(&c.flag, 0, 1) {
 			err2 := c.refreshCtoken()
+			// 如果是微信登录，尝试刷新Token
+			if errors.Is(err2, ErrCookieExpiration) && GetCookieValue("wy_appid", c.GetCookies()) != "" {
+				_, err3 := c.WeiXinRefreshToken()
+				if err3 != nil {
+					err2 = errors.Join(err2, err3)
+				}
+			}
+
 			atomic.SwapInt32(&c.flag, 0)
 			if err2 != nil {
 				return resp_, errors.Join(err, err2)

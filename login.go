@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	jsoniter "github.com/json-iterator/go"
 )
 
 // 微信扫码登录
@@ -75,6 +77,39 @@ RESTART:
 			return nil, fmt.Errorf("err code:%s", wxErrCode)
 		}
 	}
+}
+
+type WeiXinRefreshTokenData struct {
+	Openid       string `json:"openid"`
+	AccessToken  string `json:"access_token"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token"`
+	Scope        string `json:"scope"`
+}
+
+// 微信刷新Token
+func (c *WeiYunClient) WeiXinRefreshToken() (*WeiXinRefreshTokenData, error) {
+	var resp WeiXinRefreshTokenData
+	resp_, err := c.Client.R().
+		SetQueryParams(map[string]string{
+			"grant_type":    "refresh_token",
+			"appid":         GetCookieValue("wy_appid", c.GetCookies()),
+			"refresh_token": GetCookieValue("refresh_token", c.GetCookies()),
+		}).
+		ForceContentType("application/json; charset=UTF-8").
+		SetResult(&resp).
+		Get("https://api.weixin.qq.com/sns/oauth2/refresh_token")
+	if err != nil {
+		return nil, err
+	}
+
+	if jsoniter.Get(resp_.Body(), "errcode").ToInt() != 0 {
+		return nil, &Resp{Code: jsoniter.Get(resp_.Body(), "errcode").ToInt(), Msg: jsoniter.Get(resp_.Body(), "errmsg").ToString()}
+	}
+	SetCookieValue("openid", resp.Openid, c.GetCookies())
+	SetCookieValue("access_token", resp.AccessToken, c.GetCookies())
+	SetCookieValue("refresh_token", resp.RefreshToken, c.GetCookies())
+	return &resp, nil
 }
 
 func (c *WeiYunClient) QQLoginInit(ctx context.Context) (appid, daid, callbackURL string, err error) {
