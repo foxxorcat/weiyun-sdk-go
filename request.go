@@ -1,13 +1,16 @@
 package weiyunsdkgo
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"sync/atomic"
 	"time"
 
 	"github.com/go-resty/resty/v2"
+	jsoniter "github.com/json-iterator/go"
 )
 
 func NewBody(cmdName string, data, tokenInfo Json) Json {
@@ -51,24 +54,47 @@ func (c *WeiYunClient) request(protocol, cmdName string, cmd int, data Json, res
 	})
 
 	if protocol == "upload" {
-		req.SetMultipartFormData(map[string]string{
-			"json": MustJsonMarshalToString(Json{
-				"req_header": Json{
-					"cmd":           cmd,
-					"appid":         30013,
-					"major_version": 3,
-					"minor_version": 0,
-					"fix_version":   0,
-					"version":       0,
-					"user_flag":     0,
+		// 取出后删除
+		var fileReader io.Reader
+		if data != nil {
+			if r, ok := data["fileReader"].(io.Reader); ok {
+				delete(data, "fileReader")
+				fileReader = r
+			}
+		}
+
+		// 严格排序，只能手动构建
+		boundary := "----WebKitFormBoundaryIifrOqiswelC8nfe"
+		formData := bytes.NewBuffer(make([]byte, 0, 1024*1024+4096))
+		formData.WriteString("--" + boundary + "\r\n")
+		formData.WriteString("Content-Disposition: form-data; name=\"json\"\r\n\r\n")
+		formData.WriteString(MustJsonMarshalToString(Json{
+			"req_header": Json{
+				"cmd":           cmd,
+				"appid":         30013,
+				"major_version": 3,
+				"minor_version": 0,
+				"fix_version":   0,
+				"version":       0,
+				"user_flag":     0,
+			},
+			"req_body": Json{
+				"ReqMsg_body": Json{
+					"weiyun." + cmdName + "MsgReq_body": data,
 				},
-				"req_body": Json{
-					"ReqMsg_body": Json{
-						"weiyun." + cmdName + "MsgReq_body": data,
-					},
-				},
-			}),
-		})
+			},
+		}))
+		if fileReader != nil {
+			formData.WriteString("\r\n--" + boundary + "\r\n")
+			formData.WriteString("Content-Disposition: form-data; name=\"upload\"; filename=\"blob\"\r\n")
+			formData.WriteString("Content-Type: application/octet-stream\r\n\r\n")
+			if _, err := io.Copy(formData, fileReader); err != nil {
+				return nil, err
+			}
+		}
+		formData.WriteString("\r\n--" + boundary + "--\r\n")
+
+		req.SetBody(formData).SetHeader("Content-Type", "multipart/form-data; boundary="+boundary)
 	} else {
 		req.SetBody(Json{
 			"req_header": MustJsonMarshalToString(NewHeader(cmd, tokenInfo)),
@@ -89,12 +115,18 @@ func (c *WeiYunClient) request(protocol, cmdName string, cmd int, data Json, res
 	if protocol == "upload" {
 		resp_, err = req.SetResult(&respRaw.Data).Post("https://upload.weiyun.com/ftnup_v2/weiyun")
 		if err != nil {
-			return resp_.Body(), err
+			return nil, err
 		}
 	} else {
-		resp_, err = req.SetPathParams(map[string]string{"protocol": protocol, "name": cmdName}).SetResult(&respRaw).Post("https://www.weiyun.com/webapp/json/{protocol}/{name}")
+		resp_, err = req.
+			SetPathParams(map[string]string{
+				"protocol": protocol,
+				"name":     cmdName,
+			}).
+			SetResult(&respRaw).
+			Post("https://www.weiyun.com/webapp/json/{protocol}/{name}")
 		if err != nil {
-			return resp_.Body(), err
+			return nil, err
 		}
 	}
 
@@ -113,8 +145,13 @@ func (c *WeiYunClient) request(protocol, cmdName string, cmd int, data Json, res
 
 	// 绑定body
 	if resp != nil {
-		if err = c.Client.JSONUnmarshal(respRaw.GetBody(), resp); err != nil {
-			return resp_.Body(), err
+		if protocol == "upload" {
+			jsoniter.Get(respRaw.Data.RspBody.RspMsgBody, "weiyun."+cmdName+"MsgRsp_body").ToVal(&resp)
+		} else {
+			err = c.Client.JSONUnmarshal(respRaw.GetBody(), resp)
+			if err != nil {
+				return resp_.Body(), err
+			}
 		}
 	}
 

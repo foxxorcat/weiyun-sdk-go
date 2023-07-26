@@ -173,10 +173,10 @@ func (c *WeiYunClient) DiskDirCreate(dParam FolderParam, opts ...RestyOption) (*
 }
 
 type FileParam struct {
-	PPdirKey string `json:"ppdir_key,omitempty"` // 父父目录ID(打包下载忽略)
+	PPdirKey string `json:"ppdir_key,omitempty"` // 父父目录ID(下载忽略)
 	PdirKey  string `json:"pdir_key,omitempty"`  // 父目录ID
 	FileID   string `json:"file_id,omitempty"`   // 文件ID
-	FileName string `json:"filename,omitempty"`  // 文件名称(打包下载忽略)
+	FileName string `json:"filename,omitempty"`  // 文件名称(下载忽略)
 }
 
 // 文件重命名
@@ -216,6 +216,9 @@ func (c *WeiYunClient) DiskFileMove(srcParam FileParam, dstParam FolderParam, op
 }
 
 type DiskFileDownloadData struct {
+	Retcode int    `json:"retcode"`
+	Retmsg  string `json:"retmsg"`
+
 	CookieName  string `json:"cookie_name"`
 	CookieValue string `json:"cookie_value"`
 
@@ -224,16 +227,27 @@ type DiskFileDownloadData struct {
 
 // 文件下载
 func (c *WeiYunClient) DiskFileDownload(fParam FileParam, opts ...RestyOption) (*DiskFileDownloadData, error) {
+	resp, err := c.DiskFileBatchDownload([]FileParam{fParam}, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &resp[0], nil
+}
+
+// 批量下载
+func (c *WeiYunClient) DiskFileBatchDownload(fParam []FileParam, opts ...RestyOption) ([]DiskFileDownloadData, error) {
 	param := Json{
-		"file_list":     []FileParam{fParam},
+		"file_list":     fParam,
 		"download_type": 0,
 	}
-	var resp DiskFileDownloadData
+	var resp struct {
+		Data []DiskFileDownloadData `json:"file_list"`
+	}
 	_, err := c.WeiyunQdiskClientRequest("DiskFileBatchDownload", 2402, param, &resp, opts...)
 	if err != nil {
 		return nil, err
 	}
-	return &resp, nil
+	return resp.Data, nil
 }
 
 type DiskFilePackageDownloadParam struct {
@@ -290,7 +304,7 @@ func batchParamConvert(param any) Json {
 	return param_
 }
 
-type UploadAuth struct {
+type UploadAuthData struct {
 	UploadKey string `json:"upload_key"`
 	Ex        string `json:"ex"`
 }
@@ -299,6 +313,24 @@ type UploadChannelData struct {
 	ID     int `json:"id"`
 	Offset int `json:"offset"`
 	Len    int `json:"len"`
+}
+
+type PreUploadData struct {
+	FileExist bool `json:"file_exist"` // 文件是否存在
+	File      File `json:"common_upload_rsp"`
+
+	UploadScr int `json:"upload_scr"` // 未知
+
+	// 上传授权
+	UploadAuthData
+
+	ChannelList []UploadChannelData `json:"channel_list"` // 上传通道
+
+	Speedlimit int `json:"speedlimit"` // 上传速度限制
+	FlowState  int `json:"flow_state"`
+
+	UploadState     int `json:"upload_state"`      // 上传状态 1:上传未完成,3:该通道无剩余分片，2:上传完成
+	UploadedDataLen int `json:"uploaded_data_len"` // 已经上传的长度
 }
 
 type UpdloadFileParam struct {
@@ -311,26 +343,6 @@ type UpdloadFileParam struct {
 
 	ChannelCount    int // 上传通道数量
 	FileExistOption int // 文件存在时操作 6，4
-}
-
-type PreUploadData struct {
-	CommonUploadRsp File `json:"common_upload_rsp"`
-
-	FileExist       bool `json:"file_exist"`        // 文件是否存在
-	ExtChannelCount int  `json:"ext_channel_count"` // 存在通道数
-
-	UploadScr int `json:"upload_scr"` // 未知
-
-	// 上传授权
-	UploadAuth
-
-	ChannelList []UploadChannelData `json:"channel_list"` // 上传通道
-
-	Speedlimit int `json:"speedlimit"` // 上传速度限制
-	FlowState  int `json:"flow_state"`
-
-	UploadState     int `json:"upload_state"`      // 上传状态
-	UploadedDataLen int `json:"uploaded_data_len"` // 已经上传的长度
 }
 
 func (c *WeiYunClient) PreUpload(ctx context.Context, param UpdloadFileParam, opts ...RestyOption) (*PreUploadData, error) {
@@ -406,23 +418,21 @@ func (c *WeiYunClient) PreUpload(ctx context.Context, param UpdloadFileParam, op
 			"use_mutil_channel": true,
 		},
 		"upload_scr":      0,
-		"channel_count":   param.ChannelCount, //
+		"channel_count":   param.ChannelCount,
 		"check_sha":       checkSha1,
 		"check_data":      checkData,
 		"block_size":      blockSize,
 		"block_info_list": blockInfoList,
 	}
 
-	var resp struct {
-		Body PreUploadData `json:"weiyun.PreUploadMsgRsp_body"`
-	}
+	var resp PreUploadData
 	_, err = c.UploadRequest("PreUpload", 247120, paramJson, &resp, append([]RestyOption{func(request *resty.Request) { request.SetContext(ctx) }}, opts...)...)
 	if err != nil {
 		return nil, err
 	}
-	resp.Body.CommonUploadRsp.FileSha = fileHash
-	resp.Body.CommonUploadRsp.FileSize = param.FileSize
-	return &resp.Body, nil
+	resp.File.FileSha = fileHash
+	resp.File.FileSize = param.FileSize
+	return &resp, nil
 }
 
 type AddChannelData struct {
@@ -446,7 +456,7 @@ type AddChannelData struct {
 }
 
 // 增加上传通道
-func (c *WeiYunClient) AddUploadChannel(origChannelCount, destChannelCount int, auth UploadAuth, opts ...RestyOption) (*AddChannelData, error) {
+func (c *WeiYunClient) AddUploadChannel(origChannelCount, destChannelCount int, auth UploadAuthData, opts ...RestyOption) (*AddChannelData, error) {
 	param := Json{
 		"upload_key": auth.UploadKey,
 		"ex":         auth.Ex,
@@ -457,38 +467,39 @@ func (c *WeiYunClient) AddUploadChannel(origChannelCount, destChannelCount int, 
 		"speed": 4303,
 	}
 
-	var resp struct {
-		Body AddChannelData `json:"weiyun.AddChannelMsgRsp_body"`
-	}
+	var resp AddChannelData
 	_, err := c.UploadRequest("AddChannel", 247122, param, &resp, opts...)
 	if err != nil {
 		return nil, err
 	}
-	return &resp.Body, nil
+	return &resp, nil
 }
 
 type UploadPieceData struct {
-	Channel UploadChannelData `json:"channel"` // 下一个上传通道
+	Channel UploadChannelData `json:"channel"` // 下一个分片
 	Ex      string            `json:"ex"`
 
-	UploadState int `json:"upload_state"` // 上传状态
+	UploadState int `json:"upload_state"` // 上传状态 1:上传未完成,3:该通道无剩余分片，2:上传完成
 	FlowState   int `json:"flow_state"`
 }
 
-func (c *WeiYunClient) UploadFile(ctx context.Context, channel UploadChannelData, auth UploadAuth, r io.Reader, opts ...RestyOption) (*UploadPieceData, error) {
+func (c *WeiYunClient) UploadFile(ctx context.Context, channel UploadChannelData, auth UploadAuthData, r io.Reader, opts ...RestyOption) (*UploadPieceData, error) {
 	param := Json{
 		"upload_key": auth.UploadKey,
 		"ex":         auth.Ex,
 		"channel":    channel,
+
+		// 用于传递文件句柄
+		"fileReader": r,
 	}
-	var resp struct {
-		Body UploadPieceData `json:"weiyun.AddChannelMsgRsp_body"`
-	}
+
+	var resp UploadPieceData
 	_, err := c.UploadRequest("UploadPiece", 247121, param, &resp, append([]RestyOption{func(request *resty.Request) {
-		request.SetFileReader("upload", "blob", r)
+		request.SetContext(ctx)
 	}}, opts...)...)
 	if err != nil {
 		return nil, err
 	}
-	return &resp.Body, nil
+	resp.Channel.Len = channel.Len
+	return &resp, nil
 }
