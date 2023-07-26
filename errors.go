@@ -1,5 +1,12 @@
 package weiyunsdkgo
 
+import "errors"
+
+var (
+	ErrTokenExpiration = errors.New("token expiration")
+	ErrTokenIsNil      = errors.New("token is nil")
+)
+
 /*
  	190011: "无效的QQ号码",
     190012: "无效的命令字",

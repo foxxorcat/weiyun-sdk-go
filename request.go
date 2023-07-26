@@ -179,10 +179,10 @@ func (c *WeiYunClient) Request(protocol, name string, cmd int, data Json, resp a
 	resp_, err := c.request(protocol, name, cmd, data, resp, opts...)
 	if err == ErrCode403 {
 		if atomic.CompareAndSwapInt32(&c.flag, 0, 1) {
-			err := c.refreshCtoken()
+			err2 := c.refreshCtoken()
 			atomic.SwapInt32(&c.flag, 0)
-			if err != nil {
-				return resp_, err
+			if err2 != nil {
+				return resp_, errors.Join(err, err2)
 			}
 		}
 		for atomic.LoadInt32(&c.flag) != 0 {

@@ -25,7 +25,15 @@ func GetCookieValue(name string, cks []*http.Cookie) string {
 	return ""
 }
 
-func ParseCookie(str string) []*http.Cookie {
+func SetCookieValue(name string, value string, cks []*http.Cookie) {
+	for _, ck := range cks {
+		if ck.Name == name {
+			ck.Value = value
+		}
+	}
+}
+
+func ParseCookieStr(str string) []*http.Cookie {
 	header := http.Header{}
 	header.Add("Cookie", str)
 	request := http.Request{Header: header}
@@ -38,30 +46,10 @@ func CookieToString(cookies []*http.Cookie) string {
 	}
 	cookieStrings := make([]string, len(cookies))
 	for i, cookie := range cookies {
-		cookieStrings[i] = cookie.String()
+		cookieStrings[i] = cookie.Name + "=" + cookie.Value
 	}
 	return strings.Join(cookieStrings, ";")
 }
-
-func GetHash33(d string) string {
-	var e int
-	for _, t := range d {
-		e += (e << 5) + int(t)
-	}
-	return strconv.Itoa(0x7fffffff & e)
-}
-
-// func GetGTK(pskey string) string {
-// 	e := 5381
-// 	for _, t := range pskey {
-// 		e += (e << 5) + int(t)
-// 	}
-// 	return strconv.Itoa(0x7fffffff & e)
-// }
-
-// func GetBKN(skey string) string {
-// 	return GetGTK(skey)
-// }
 
 /*
 *	Slice
@@ -133,4 +121,32 @@ func GetSha1State(h hash.Hash) []byte {
 
 func RandomT() string {
 	return strconv.FormatFloat(rand.Float64(), 'f', 16, 32)
+}
+
+func GetHash33(d string) string {
+	var e int
+	for _, t := range d {
+		e += (e << 5) + int(t)
+	}
+	return strconv.Itoa(0x7fffffff & e)
+}
+
+// func GetGTK(pskey string) string {
+// 	e := 5381
+// 	for _, t := range pskey {
+// 		e += (e << 5) + int(t)
+// 	}
+// 	return strconv.Itoa(0x7fffffff & e)
+// }
+
+// func GetBKN(skey string) string {
+// 	return GetGTK(skey)
+// }
+
+func GetDirFileIDFormUrl(url string) string {
+	i := strings.LastIndexByte(url, '/')
+	if i == -1 {
+		return ""
+	}
+	return url[i+1:]
 }

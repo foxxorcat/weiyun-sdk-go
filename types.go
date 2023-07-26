@@ -62,3 +62,23 @@ func (r *Resp) GetHeader() RespHeader {
 func (r *Resp) GetBody() json.RawMessage {
 	return r.Data.RspBody.RspMsgBody
 }
+
+type OpenApiErron struct {
+	ErrCode int    `json:"err_code"`
+	ErrMsg  string `json:"err_msg"`
+}
+
+func (e *OpenApiErron) IsError() bool {
+	return e.ErrCode != 0
+}
+
+func (e *OpenApiErron) Error() string {
+	return fmt.Sprintf("code:%d, msg:%s", e.ErrCode, e.ErrMsg)
+}
+
+type OpenApiToken struct {
+	AccessToken  string `json:"access_token"`
+	ExpiresIn    int    `json:"expires_in"`
+	RefreshToken string `json:"refresh_token"`
+	TokenType    string `json:"token_type"`
+}
