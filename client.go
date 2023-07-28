@@ -15,9 +15,6 @@ type Json map[string]any
 type WeiYunClient struct {
 	Client *resty.Client
 	flag   int32
-
-	token *OpenApiToken
-	flag2 int32
 }
 
 func NewWeiYunClient() *WeiYunClient {
@@ -64,15 +61,4 @@ func (c *WeiYunClient) GetCookies() []*http.Cookie {
 
 func (c *WeiYunClient) GetCookieJar() http.CookieJar {
 	return c.Client.GetClient().Jar
-}
-
-// 设置OpenApi Token
-func (c *WeiYunClient) SetOpenApiToken(token *OpenApiToken) *WeiYunClient {
-	c.token = token
-	return c
-}
-
-// 获取OpenApi Token
-func (c *WeiYunClient) GetOpenApiToken() *OpenApiToken {
-	return c.token
 }
