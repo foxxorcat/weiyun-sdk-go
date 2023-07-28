@@ -163,10 +163,10 @@ RESTART:
 		"t":  RandomT(),
 		"u1": callbackURL,
 
-		"e": "2",
+		"e": "2", // 二维码外边框大小
 		"l": "M",
-		"s": "6",
-		"d": "720",
+		"s": "8", // 二维码大小
+		"d": "72",
 		"v": "4",
 	}).Get("https://ssl.ptlogin2.weiyun.com/ptqrshow")
 	if err != nil {
