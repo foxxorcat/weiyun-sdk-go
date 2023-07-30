@@ -5,7 +5,6 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
-	"fmt"
 	"io"
 
 	"github.com/go-resty/resty/v2"
@@ -31,8 +30,21 @@ type Folder struct {
 	DirMtime TimeStamp `json:"dir_mtime"`
 }
 
-type DiskDirBatchListData struct {
-	DirList []DiskListData `json:"dir_list"`
+type FolderPath struct {
+	PdirKey string `json:"pdir_key"`
+	Folder
+}
+
+// 查询文件夹完整路径
+func (c *WeiYunClient) LibDirPathGet(dirKey string, opts ...RestyOption) ([]FolderPath, error) {
+	var resp struct {
+		Items []FolderPath `json:"items"`
+	}
+	_, err := c.WeiyunFileLibClientRequest("LibDirPathGet", 26150, Json{"dir_key": dirKey}, &resp, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Items, nil
 }
 
 type DiskListData struct {
@@ -105,7 +117,10 @@ func (c *WeiYunClient) DiskDirFileBatchList(batchParam []DiskDirFileBatchListPar
 		}),
 	}
 
-	var resp DiskDirBatchListData
+	var resp struct {
+		DirList []DiskListData `json:"dir_list"`
+	}
+
 	_, err := c.WeiyunQdiskRequest("DiskDirBatchList", 2209, param, &resp, opts...)
 	if err != nil {
 		return nil, err
@@ -114,7 +129,7 @@ func (c *WeiYunClient) DiskDirFileBatchList(batchParam []DiskDirFileBatchListPar
 }
 
 type FolderParam struct {
-	PPdirKey string `json:"ppdir_key,omitempty"` // 父父目录ID(打包下载忽略)
+	PPdirKey string `json:"ppdir_key,omitempty"` // 父父目录ID(打包下载忽略)(移动dst忽略)
 	PdirKey  string `json:"pdir_key,omitempty"`  // 父目录ID(打包下载忽略)
 	DirKey   string `json:"dir_key,omitempty"`   // 目录ID(创建忽略)
 	DirName  string `json:"dir_name,omitempty"`  // 目录名称
@@ -129,7 +144,7 @@ func (c *WeiYunClient) DiskDirAttrModify(dParam FolderParam, newDirName string, 
 		"src_dir_name": dParam.DirName,
 		"dst_dir_name": newDirName,
 	}
-	_, err := c.WeiyunQdiskClientRequest("DiskDirAttrModify", 2605, param, nil, opts...)
+	_, err := c.WeiyunQdiskClientRequest("DiskDirAttrModify", 2615, param, nil, opts...)
 	return err
 }
 
@@ -148,8 +163,8 @@ func (c *WeiYunClient) DiskDirMove(srcParam FolderParam, dstParam FolderParam, o
 		"src_ppdir_key": srcParam.PPdirKey,
 		"src_pdir_key":  srcParam.PdirKey,
 		"dir_list":      []FolderParam{srcParam},
-		"dst_ppdir_key": dstParam.PPdirKey,
-		"dst_pdir_key":  dstParam.PdirKey,
+		"dst_ppdir_key": dstParam.PdirKey,
+		"dst_pdir_key":  dstParam.DirKey,
 	}
 	_, err := c.WeiyunQdiskClientRequest("DiskDirFileBatchMove", 2618, param, nil, opts...)
 	return err
@@ -208,8 +223,8 @@ func (c *WeiYunClient) DiskFileMove(srcParam FileParam, dstParam FolderParam, op
 		"src_ppdir_key": srcParam.PPdirKey,
 		"src_pdir_key":  srcParam.PdirKey,
 		"file_list":     []FileParam{srcParam},
-		"dst_ppdir_key": dstParam.PPdirKey,
-		"dst_pdir_key":  dstParam.PdirKey,
+		"dst_ppdir_key": dstParam.PdirKey,
+		"dst_pdir_key":  dstParam.DirKey,
 	}
 	_, err := c.WeiyunQdiskClientRequest("DiskDirFileBatchMove", 2618, param, nil, opts...)
 	return err
@@ -310,9 +325,9 @@ type UploadAuthData struct {
 }
 
 type UploadChannelData struct {
-	ID     int `json:"id"`
-	Offset int `json:"offset"`
-	Len    int `json:"len"`
+	ID     int   `json:"id"`
+	Offset int64 `json:"offset"`
+	Len    int   `json:"len"`
 }
 
 type PreUploadData struct {
@@ -334,99 +349,127 @@ type PreUploadData struct {
 }
 
 type UpdloadFileParam struct {
-	PPdirKey string // 父父目录ID
-	PdirKey  string // 父目录ID
+	PdirKey string // 父父目录ID
+	DirKey  string // 父目录ID
 
 	FileName string
 	FileSize int64
 	File     io.ReadSeeker
 
-	ChannelCount    int // 上传通道数量
-	FileExistOption int // 文件存在时操作 6，4
+	ChannelCount int // 上传通道数量
+
+	// 遇到同名文件操作
+	// 1(覆盖) 2 to n(重命名)
+	FileExistOption int
 }
 
 func (c *WeiYunClient) PreUpload(ctx context.Context, param UpdloadFileParam, opts ...RestyOption) (*PreUploadData, error) {
 	const blockSize = 1024 * 1024
-	lastBlockSize := (param.FileSize % blockSize) // 最后一块大小
-	if lastBlockSize == 0 {
-		lastBlockSize = blockSize
-	}
-	beforeBlockSize := param.FileSize - lastBlockSize // 除去最后一刻的大小
-
-	type BlockInfo struct {
-		Sha1   string `json:"sha"`
-		Offset int64  `json:"offset"`
-		Size   int64  `json:"size"`
-	}
-
-	// before
-	hash := sha1.New()
-	blockInfoList := make([]BlockInfo, 0, (param.FileSize/blockSize)+1)
-	for offset := int64(0); offset < beforeBlockSize; offset += blockSize {
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		default:
-		}
-		if _, err := io.CopyN(hash, param.File, blockSize); err != nil {
-			return nil, err
-		}
-		blockInfoList = append(blockInfoList, BlockInfo{
-			Sha1:   hex.EncodeToString(GetSha1State(hash)),
-			Offset: offset,
-			Size:   blockSize,
-		})
-	}
-
-	// between
-	var checkData string
-	var checkSha1 string
-	var buf [128]byte
-	if lastBlockSize > 128 {
-		if n, err := io.CopyN(hash, param.File, lastBlockSize-128); err != nil {
-			fmt.Println(n, err)
-			return nil, err
-		}
-		checkSha1 = hex.EncodeToString(GetSha1State(hash))
-	}
-
-	// after
-	n, err := io.ReadFull(io.TeeReader(param.File, hash), buf[:])
-	if err != nil {
-		return nil, err
-	}
-
-	fileHash := hex.EncodeToString(hash.Sum(nil))
-	checkData = base64.StdEncoding.EncodeToString(buf[:n])
-	if checkSha1 == "" {
-		checkSha1 = fileHash
-	}
-
-	blockInfoList = append(blockInfoList, BlockInfo{
-		Sha1:   fileHash,
-		Offset: beforeBlockSize,
-		Size:   lastBlockSize,
-	})
 
 	paramJson := Json{
 		"common_upload_req": Json{
-			"ppdir_key":         param.PPdirKey,
-			"pdir_key":          param.PdirKey,
+			"ppdir_key":         param.PdirKey,
+			"pdir_key":          param.DirKey,
 			"file_size":         param.FileSize,
 			"filename":          param.FileName,
 			"file_exist_option": param.FileExistOption,
 			"use_mutil_channel": true,
 		},
-		"upload_scr":      0,
-		"channel_count":   param.ChannelCount,
-		"check_sha":       checkSha1,
-		"check_data":      checkData,
-		"block_size":      blockSize,
-		"block_info_list": blockInfoList,
+		"upload_scr":    0,
+		"channel_count": param.ChannelCount,
+		"block_size":    blockSize,
+	}
+
+	var (
+		fileHash string
+		hash     = sha1.New()
+	)
+
+	// 当存在两个块及以上时
+	if param.FileSize > blockSize {
+		lastBlockSize := (param.FileSize % blockSize) // 最后一块大小
+		if lastBlockSize == 0 {
+			lastBlockSize = blockSize
+		}
+		beforeBlockSize := param.FileSize - lastBlockSize // 之前的块总大小
+
+		type BlockInfo struct {
+			Sha1   string `json:"sha"`
+			Offset int64  `json:"offset"`
+			Size   int64  `json:"size"`
+		}
+
+		var (
+			checkSha1     string
+			checkData     string
+			blockInfoList = make([]BlockInfo, 0, (param.FileSize/blockSize)+1)
+		)
+
+		// before
+		// 计算除最后一块hash
+
+		for offset := int64(0); offset < beforeBlockSize; offset += blockSize {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			default:
+			}
+			if _, err := io.CopyN(hash, param.File, blockSize); err != nil {
+				return nil, err
+			}
+			checkSha1 = hex.EncodeToString(GetSha1State(hash))
+			blockInfoList = append(blockInfoList, BlockInfo{
+				Sha1:   checkSha1,
+				Offset: offset,
+				Size:   blockSize,
+			})
+		}
+
+		// between
+		// 计算最后一块，留128byte
+
+		var buf [128]byte
+		if lastBlockSize > 128 {
+			if _, err := io.CopyN(hash, param.File, lastBlockSize-128); err != nil {
+				return nil, err
+			}
+			checkSha1 = hex.EncodeToString(GetSha1State(hash))
+		}
+
+		// after
+		// 读完最后块的数据
+
+		n, err := io.ReadFull(io.TeeReader(param.File, hash), buf[:])
+		if err != nil && err != io.ErrUnexpectedEOF {
+			return nil, err
+		}
+		fileHash = hex.EncodeToString(hash.Sum(nil))
+		checkData = base64.StdEncoding.EncodeToString(buf[:n])
+
+		blockInfoList = append(blockInfoList, BlockInfo{
+			Sha1:   fileHash,
+			Offset: beforeBlockSize,
+			Size:   lastBlockSize,
+		})
+
+		paramJson["check_sha"] = checkSha1
+		paramJson["check_data"] = checkData
+		paramJson["block_info_list"] = blockInfoList
+	} else {
+		// 小于分块的文件单独处理文件，否则服务器会出错
+		if _, err := io.Copy(hash, param.File); err != nil {
+			return nil, err
+		}
+		fileHash = hex.EncodeToString(hash.Sum(nil))
+		paramJson["fileReader"] = param.File
+	}
+
+	if _, err := param.File.Seek(0, io.SeekStart); err != nil {
+		return nil, err
 	}
 
 	var resp PreUploadData
-	_, err = c.UploadRequest("PreUpload", 247120, paramJson, &resp, append([]RestyOption{func(request *resty.Request) { request.SetContext(ctx) }}, opts...)...)
+	_, err := c.UploadRequest("PreUpload", 247120, paramJson, &resp, append([]RestyOption{func(request *resty.Request) { request.SetContext(ctx) }}, opts...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -500,6 +543,9 @@ func (c *WeiYunClient) UploadFile(ctx context.Context, channel UploadChannelData
 	if err != nil {
 		return nil, err
 	}
-	resp.Channel.Len = channel.Len
+
+	if resp.Channel.Len == 0 {
+		resp.Channel.Len = channel.Len
+	}
 	return &resp, nil
 }

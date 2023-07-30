@@ -46,7 +46,7 @@ func NewHeader(cmd int, tokenInfo Json) Json {
 }
 
 func (c *WeiYunClient) request(protocol, cmdName string, cmd int, data Json, resp any, opts ...RestyOption) ([]byte, error) {
-	tokenInfo := ParseTokenInfo(c.GetCookies())
+	tokenInfo := c.ParseTokenInfo()
 	req := c.Client.R().SetQueryParams(map[string]string{
 		//"refer": "chrome_windows",
 		"g_tk": GetCookieValue("wyctoken", c.GetCookies()),
@@ -181,16 +181,22 @@ func (c *WeiYunClient) Request(protocol, name string, cmd int, data Json, resp a
 		if atomic.CompareAndSwapInt32(&c.flag, 0, 1) {
 			err2 := c.refreshCtoken()
 			// 如果是微信登录，尝试刷新Token
-			if errors.Is(err2, ErrCookieExpiration) && GetCookieValue("wy_appid", c.GetCookies()) != "" {
-				_, err3 := c.WeiXinRefreshToken()
-				if err3 != nil {
-					err2 = errors.Join(err2, err3)
+			if errors.Is(err2, ErrCookieExpiration) && c.LoginType() == 1 {
+				_, err2 = c.WeiXinRefreshToken()
+				if err2 == nil {
+					// 验证Token刷新
+					err2 = c.refreshCtoken()
+				}
+				if err2 != nil {
+					errors.Join(ErrCookieExpiration, err2)
 				}
 			}
 
 			atomic.SwapInt32(&c.flag, 0)
 			if err2 != nil {
-				return resp_, errors.Join(err, err2)
+				err = errors.Join(err, err2)
+				c.onCookieExpired(err)
+				return resp_, err
 			}
 		}
 		for atomic.LoadInt32(&c.flag) != 0 {

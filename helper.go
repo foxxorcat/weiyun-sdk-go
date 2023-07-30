@@ -51,6 +51,20 @@ func CookieToString(cookies []*http.Cookie) string {
 	return strings.Join(cookieStrings, ";")
 }
 
+func ClearCookie(cookies []*http.Cookie) []*http.Cookie {
+	newCookies := make([]*http.Cookie, 0, len(cookies))
+	for _, cookie := range cookies {
+		// 去空
+		if cookie != nil && cookie.Value != "" {
+			// 去重复
+			if !SliceContains(newCookies, cookie, func(n, c *http.Cookie) bool { return n.Name == c.Name }) {
+				newCookies = append(newCookies, cookie)
+			}
+		}
+	}
+	return newCookies
+}
+
 /*
 *	Slice
 **/

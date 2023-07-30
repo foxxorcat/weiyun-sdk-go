@@ -15,12 +15,24 @@ type Json map[string]any
 type WeiYunClient struct {
 	Client *resty.Client
 	flag   int32
+
+	onCookieExpired func(error) // cookie 过期调用
+}
+
+func NewWeiYunClientWithRestyClient(client *resty.Client) *WeiYunClient {
+	return &WeiYunClient{
+		Client: client,
+	}
 }
 
 func NewWeiYunClient() *WeiYunClient {
 	return &WeiYunClient{
 		Client: resty.New(),
 	}
+}
+
+func (c *WeiYunClient) SetOnCookieExpired(onCookieExpired func(error)) {
+	c.onCookieExpired = onCookieExpired
 }
 
 func (c *WeiYunClient) SetClient(client *http.Client) *WeiYunClient {

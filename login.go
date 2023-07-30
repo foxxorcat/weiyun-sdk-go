@@ -336,9 +336,21 @@ func (c *WeiYunClient) QQFastLogin(ctx context.Context, qq string) ([]*http.Cook
 	}
 }
 
-func ParseTokenInfo(cks []*http.Cookie) Json {
-	// 微信登录
+// 2:wx 1:qq 0:not login
+func (c *WeiYunClient) LoginType() int8 {
+	cks := c.GetCookies()
 	if GetCookieValue("wy_appid", cks) != "" {
+		return 2
+	} else if GetCookieValue("p_skey", cks) != "" {
+		return 1
+	}
+	return 0
+}
+
+func (c *WeiYunClient) ParseTokenInfo() Json {
+	// 微信登录
+	cks := c.GetCookies()
+	if c.LoginType() == 2 {
 		return Json{
 			"token_type":      1,
 			"openid":          GetCookieValue("openid", cks),
