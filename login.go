@@ -106,9 +106,11 @@ func (c *WeiYunClient) WeiXinRefreshToken() (*WeiXinRefreshTokenData, error) {
 	if jsoniter.Get(resp_.Body(), "errcode").ToInt() != 0 {
 		return nil, &Resp{Code: jsoniter.Get(resp_.Body(), "errcode").ToInt(), Msg: jsoniter.Get(resp_.Body(), "errmsg").ToString()}
 	}
-	SetCookieValue("openid", resp.Openid, c.GetCookies())
-	SetCookieValue("access_token", resp.AccessToken, c.GetCookies())
-	SetCookieValue("refresh_token", resp.RefreshToken, c.GetCookies())
+	cks := c.GetCookies()
+	SetCookieValue("openid", resp.Openid, cks)
+	SetCookieValue("access_token", resp.AccessToken, cks)
+	SetCookieValue("refresh_token", resp.RefreshToken, cks)
+	c.SetCookies(cks)
 	return &resp, nil
 }
 

@@ -17,6 +17,7 @@ type WeiYunClient struct {
 	flag   int32
 
 	onCookieExpired func(error) // cookie 过期调用
+	onCookieUpload  func([]*http.Cookie)
 }
 
 func NewWeiYunClientWithRestyClient(client *resty.Client) *WeiYunClient {
@@ -33,6 +34,10 @@ func NewWeiYunClient() *WeiYunClient {
 
 func (c *WeiYunClient) SetOnCookieExpired(onCookieExpired func(error)) {
 	c.onCookieExpired = onCookieExpired
+}
+
+func (c *WeiYunClient) SetOnCookieUpload(onCookieUpload func([]*http.Cookie)) {
+	c.onCookieUpload = onCookieUpload
 }
 
 func (c *WeiYunClient) SetClient(client *http.Client) *WeiYunClient {
@@ -57,6 +62,9 @@ func (c *WeiYunClient) SetCookies(cks []*http.Cookie) *WeiYunClient {
 		ck.Path = "/"
 	}
 	c.GetCookieJar().SetCookies(baseUrl, cks)
+	if c.onCookieUpload != nil {
+		c.onCookieUpload(cks)
+	}
 	return c
 }
 
