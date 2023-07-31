@@ -366,6 +366,88 @@ type UpdloadFileParam struct {
 func (c *WeiYunClient) PreUpload(ctx context.Context, param UpdloadFileParam, opts ...RestyOption) (*PreUploadData, error) {
 	const blockSize = 1024 * 1024
 
+	var (
+		beforeBlockSize int64            // 之前的块总大小
+		lastBlockSize   = param.FileSize // 最后一块大小
+		checkBlockSize  int64            // checkData大小
+	)
+
+	if param.FileSize > 0 {
+		lastBlockSize = (param.FileSize % blockSize)
+		if lastBlockSize == 0 {
+			lastBlockSize = blockSize
+		}
+		checkBlockSize = lastBlockSize % 128
+		if checkBlockSize == 0 {
+			checkBlockSize = 128
+		}
+		beforeBlockSize = param.FileSize - lastBlockSize
+	}
+
+	type BlockInfo struct {
+		Sha1   string `json:"sha"`
+		Offset int64  `json:"offset"`
+		Size   int64  `json:"size"`
+	}
+
+	var (
+		fileHash      string
+		checkSha1     string
+		checkData     string
+		blockInfoList = make([]BlockInfo, 0, (param.FileSize/blockSize)+1)
+		hash          = sha1.New()
+	)
+
+	// before
+	// 计算除最后一块hash
+
+	for offset := int64(0); offset < beforeBlockSize; offset += blockSize {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		if _, err := io.CopyN(hash, param.File, blockSize); err != nil {
+			return nil, err
+		}
+		blockInfoList = append(blockInfoList, BlockInfo{
+			Sha1:   hex.EncodeToString(GetSha1State(hash)),
+			Offset: offset,
+			Size:   blockSize,
+		})
+	}
+
+	/*
+		    校验逻辑
+			hash := Sha1(checkSha1)
+			hash.Write(checkData)
+			hash.Sum() == fileHash
+	*/
+
+	// between
+	// 得到校验点checkSha1
+
+	if _, err := io.CopyN(hash, param.File, lastBlockSize-checkBlockSize); err != nil {
+		return nil, err
+	}
+	checkSha1 = hex.EncodeToString(GetSha1State(hash))
+
+	// after
+	// 得到校验数据checkData
+	var buf [128]byte
+	_, err := io.ReadFull(io.TeeReader(param.File, hash), buf[:checkBlockSize])
+	if err != nil {
+		return nil, err
+	}
+	checkData = base64.StdEncoding.EncodeToString(buf[:checkBlockSize])
+	fileHash = hex.EncodeToString(hash.Sum(nil))
+
+	blockInfoList = append(blockInfoList, BlockInfo{
+		Sha1:   fileHash,
+		Offset: beforeBlockSize,
+		Size:   lastBlockSize,
+	})
+
 	paramJson := Json{
 		"common_upload_req": Json{
 			"ppdir_key":         param.PdirKey,
@@ -375,93 +457,12 @@ func (c *WeiYunClient) PreUpload(ctx context.Context, param UpdloadFileParam, op
 			"file_exist_option": param.FileExistOption,
 			"use_mutil_channel": true,
 		},
-		"upload_scr":    0,
-		"channel_count": param.ChannelCount,
-		"block_size":    blockSize,
-	}
-
-	var (
-		fileHash string
-		hash     = sha1.New()
-	)
-
-	// 当存在两个块及以上时
-	if param.FileSize > blockSize {
-		lastBlockSize := (param.FileSize % blockSize) // 最后一块大小
-		if lastBlockSize == 0 {
-			lastBlockSize = blockSize
-		}
-		beforeBlockSize := param.FileSize - lastBlockSize // 之前的块总大小
-
-		type BlockInfo struct {
-			Sha1   string `json:"sha"`
-			Offset int64  `json:"offset"`
-			Size   int64  `json:"size"`
-		}
-
-		var (
-			checkSha1     string
-			checkData     string
-			blockInfoList = make([]BlockInfo, 0, (param.FileSize/blockSize)+1)
-		)
-
-		// before
-		// 计算除最后一块hash
-
-		for offset := int64(0); offset < beforeBlockSize; offset += blockSize {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			default:
-			}
-			if _, err := io.CopyN(hash, param.File, blockSize); err != nil {
-				return nil, err
-			}
-			checkSha1 = hex.EncodeToString(GetSha1State(hash))
-			blockInfoList = append(blockInfoList, BlockInfo{
-				Sha1:   checkSha1,
-				Offset: offset,
-				Size:   blockSize,
-			})
-		}
-
-		// between
-		// 计算最后一块，留128byte
-
-		var buf [128]byte
-		if lastBlockSize > 128 {
-			if _, err := io.CopyN(hash, param.File, lastBlockSize-128); err != nil {
-				return nil, err
-			}
-			checkSha1 = hex.EncodeToString(GetSha1State(hash))
-		}
-
-		// after
-		// 读完最后块的数据
-
-		n, err := io.ReadFull(io.TeeReader(param.File, hash), buf[:])
-		if err != nil && err != io.ErrUnexpectedEOF {
-			return nil, err
-		}
-		fileHash = hex.EncodeToString(hash.Sum(nil))
-		checkData = base64.StdEncoding.EncodeToString(buf[:n])
-
-		blockInfoList = append(blockInfoList, BlockInfo{
-			Sha1:   fileHash,
-			Offset: beforeBlockSize,
-			Size:   lastBlockSize,
-		})
-
-		paramJson["check_sha"] = checkSha1
-		paramJson["check_data"] = checkData
-		paramJson["block_info_list"] = blockInfoList
-	} else {
-		// 小于分块的文件单独处理文件，否则服务器会出错
-		if _, err := io.Copy(hash, param.File); err != nil {
-			return nil, err
-		}
-		fileHash = hex.EncodeToString(hash.Sum(nil))
-		paramJson["fileReader"] = param.File
+		"upload_scr":      0,
+		"channel_count":   param.ChannelCount,
+		"block_size":      blockSize,
+		"check_sha":       checkSha1,
+		"check_data":      checkData,
+		"block_info_list": blockInfoList,
 	}
 
 	if _, err := param.File.Seek(0, io.SeekStart); err != nil {
@@ -469,7 +470,7 @@ func (c *WeiYunClient) PreUpload(ctx context.Context, param UpdloadFileParam, op
 	}
 
 	var resp PreUploadData
-	_, err := c.UploadRequest("PreUpload", 247120, paramJson, &resp, append([]RestyOption{func(request *resty.Request) { request.SetContext(ctx) }}, opts...)...)
+	_, err = c.UploadRequest("PreUpload", 247120, paramJson, &resp, append([]RestyOption{func(request *resty.Request) { request.SetContext(ctx) }}, opts...)...)
 	if err != nil {
 		return nil, err
 	}
