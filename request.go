@@ -158,7 +158,7 @@ func (c *WeiYunClient) request(protocol, cmdName string, cmd int, data Json, res
 	return resp_.Body(), nil
 }
 
-func (c *WeiYunClient) refreshCtoken() error {
+func (c *WeiYunClient) RefreshCtoken() error {
 	resp, err := c.Client.R().Get("https://www.weiyun.com/disk")
 	if err != nil {
 		return err
@@ -172,20 +172,22 @@ func (c *WeiYunClient) refreshCtoken() error {
 }
 
 func (c *WeiYunClient) KeepAlive() error {
-	return c.refreshCtoken()
+	// TODO:
+	// 定时访问下载api可以保活30天？
+	return c.RefreshCtoken()
 }
 
 func (c *WeiYunClient) Request(protocol, name string, cmd int, data Json, resp any, opts ...RestyOption) ([]byte, error) {
 	resp_, err := c.request(protocol, name, cmd, data, resp, opts...)
 	if err == ErrCode403 {
 		if atomic.CompareAndSwapInt32(&c.flag, 0, 1) {
-			err2 := c.refreshCtoken()
+			err2 := c.RefreshCtoken()
 			// 如果是微信登录，尝试刷新Token
 			if errors.Is(err2, ErrCookieExpiration) && c.LoginType() == 1 {
 				_, err2 = c.WeiXinRefreshToken()
 				if err2 == nil {
 					// 验证Token刷新
-					err2 = c.refreshCtoken()
+					err2 = c.RefreshCtoken()
 				}
 				if err2 != nil {
 					errors.Join(ErrCookieExpiration, err2)
