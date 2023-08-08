@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -154,7 +155,6 @@ func (c *WeiYunClient) request(protocol, cmdName string, cmd int, data Json, res
 			}
 		}
 	}
-
 	return resp_.Body(), nil
 }
 
@@ -173,7 +173,7 @@ func (c *WeiYunClient) RefreshCtoken() error {
 
 func (c *WeiYunClient) KeepAlive() error {
 	// TODO:
-	// 定时访问下载api可以保活30天？
+	// 登录时选择记住登录，可延长存活时间
 	return c.RefreshCtoken()
 }
 
@@ -202,7 +202,7 @@ func (c *WeiYunClient) Request(protocol, name string, cmd int, data Json, resp a
 			}
 		}
 		for atomic.LoadInt32(&c.flag) != 0 {
-			time.Sleep(time.Second)
+			runtime.Gosched()
 		}
 		resp_, err = c.request(protocol, name, cmd, data, resp, opts...)
 	}

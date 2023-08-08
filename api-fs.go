@@ -486,17 +486,9 @@ type AddChannelData struct {
 	FinalChannelCount int `json:"final_channel_count"`
 
 	// 源通道信息
-	OrigChannels []struct {
-		ID     int `json:"id"`
-		Offset int `json:"offset"`
-		Len    int `json:"len"`
-	} `json:"orig_channels"`
+	OrigChannels []UploadChannelData `json:"orig_channels"`
 	// 增加通道信息
-	AddChannels []struct {
-		ID     int `json:"id"`
-		Offset int `json:"offset"`
-		Len    int `json:"len"`
-	} `json:"channels"`
+	AddChannels []UploadChannelData `json:"channels"`
 }
 
 // 增加上传通道
@@ -545,7 +537,7 @@ func (c *WeiYunClient) UploadFile(ctx context.Context, channel UploadChannelData
 		return nil, err
 	}
 
-	if resp.Channel.Len == 0 {
+	if resp.Channel.Len == 0 && resp.UploadState == 1 {
 		resp.Channel.Len = channel.Len
 	}
 	return &resp, nil
