@@ -17,7 +17,13 @@ import (
 // wx_login_ticket, access_token, refresh_token, openid, wy_appid, wyctoken, wx_uid, key_type
 func (c *WeiYunClient) WeiXinQRLogin(ctx context.Context, showQR func([]byte) error) ([]*http.Cookie, error) {
 RESTART:
-	resp, err := c.Client.R().SetContext(ctx).Get("https://user.weiyun.com/newcgi/web_wx_login.fcg?cmd=web_login&no_referer=1")
+	resp, err := c.Client.R().SetContext(ctx).
+		SetQueryParams(map[string]string{
+			"cmd":        "web_login",
+			"no_referer": "1",
+			"low_login":  "1",
+		}).
+		Get("https://user.weiyun.com/newcgi/web_wx_login.fcg")
 	if err != nil {
 		return nil, err
 	}
@@ -136,28 +142,28 @@ RESTART:
 		return nil, err
 	}
 
-	// resp, err = c.Client.R().SetContext(ctx).SetQueryParams(map[string]string{
-	// 	"appid":             appid,
-	// 	"daid":              daid,
-	// 	"s_url":            callbackURL,
-	//
-	// 	"low_login":         "1",
-	//  "low_login_foreced": "1",
-	// 	"qlogin_auto_login": "1",
-	// 	// 页面显示
-	// 	"style":           "20",
-	// 	"hide_title":      "1",
-	// 	"target":          "self",
-	// 	"link_target":     "blank",
-	// 	"hide_close_icon": "1",
-	// 	"pt_no_auth":      "1",
-	// }).Get("https://ssl.xui.ptlogin2.weiyun.com/cgi-bin/xlogin")
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// pt_login_sig := GetCookieValue("pt_login_sig", resp.Cookies())
-
 	resp, err := c.Client.R().SetContext(ctx).SetQueryParams(map[string]string{
+		"appid": appid,
+		"daid":  daid,
+		"s_url": callbackURL,
+
+		"low_login":         "1",
+		"low_login_foreced": "1",
+		"qlogin_auto_login": "1",
+		// 页面显示
+		"style":           "20",
+		"hide_title":      "1",
+		"target":          "self",
+		"link_target":     "blank",
+		"hide_close_icon": "1",
+		"pt_no_auth":      "1",
+	}).Get("https://ssl.xui.ptlogin2.weiyun.com/cgi-bin/xlogin")
+	if err != nil {
+		return nil, err
+	}
+	pt_login_sig := GetCookieValue("pt_login_sig", resp.Cookies())
+
+	resp, err = c.Client.R().SetContext(ctx).SetQueryParams(map[string]string{
 		"appid":      appid,
 		"daid":       daid,
 		"pt_3rd_aid": "0",
@@ -189,7 +195,7 @@ RESTART:
 			"daid":      daid,
 			"ptqrtoken": ptqrtoken,
 			"action":    fmt.Sprintf("0-0-%s", strconv.FormatInt(time.Now().UnixNano(), 10)[:13]),
-			// "login_sig": pt_login_sig,
+			"login_sig": pt_login_sig,
 
 			"from_ui":          "1",
 			"low_login_enable": "1",
@@ -251,6 +257,7 @@ func (c *WeiYunClient) QQFastLogin(ctx context.Context, qq string) ([]*http.Cook
 
 			"low_login":         "1",
 			"qlogin_auto_login": "1",
+			"low_login_foreced": "1",
 			// 页面显示
 			"style":           "20",
 			"hide_title":      "1",
