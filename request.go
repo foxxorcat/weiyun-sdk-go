@@ -224,3 +224,7 @@ func (c *WeiYunClient) WeiyunFileLibClientRequest(name string, cmd int, data Jso
 func (c *WeiYunClient) UploadRequest(name string, cmd int, data Json, resp any, opts ...RestyOption) ([]byte, error) {
 	return c.Request("upload", name, cmd, data, resp, opts...)
 }
+
+func (c *WeiYunClient) WeiyunSafeBoxRequest(name string, cmd int, data Json, resp any, opts ...RestyOption) ([]byte, error) {
+	return c.Request("weiyunSafeBox", name, cmd, data, resp, opts...)
+}
