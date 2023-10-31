@@ -52,11 +52,11 @@ type DiskListData struct {
 	FileList       []File   `json:"file_list"`
 	PdirKey        string   `json:"pdir_key"`
 	FinishFlag     bool     `json:"finish_flag"`
-	TotalDirCount  int      `json:"total_dir_count"`
-	TotalFileCount int      `json:"total_file_count"`
-	TotalSpace     int      `json:"total_space"`
-	HideDirCount   int      `json:"hide_dir_count"`
-	HideFileCount  int      `json:"hide_file_count"`
+	TotalDirCount  int64    `json:"total_dir_count"`
+	TotalFileCount int64    `json:"total_file_count"`
+	TotalSpace     int64    `json:"total_space"`
+	HideDirCount   int64    `json:"hide_dir_count"`
+	HideFileCount  int64    `json:"hide_file_count"`
 }
 
 // 查询文件、文件夹
