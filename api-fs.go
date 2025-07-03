@@ -7,7 +7,7 @@ import (
 	"encoding/hex"
 	"io"
 
-	"github.com/go-resty/resty/v2"
+	"resty.dev/v3"
 )
 
 type File struct {

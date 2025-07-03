@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/go-resty/resty/v2"
 	jsoniter "github.com/json-iterator/go"
+	"resty.dev/v3"
 )
 
 func NewBody(cmdName string, data, tokenInfo Json) Json {
@@ -134,14 +134,14 @@ func (c *WeiYunClient) request(protocol, cmdName string, cmd int, data Json, res
 	// http code 处理
 	if resp_.StatusCode() != 200 {
 		if resp_.StatusCode() == 403 {
-			return resp_.Body(), ErrCode403
+			return resp_.Bytes(), ErrCode403
 		}
-		return resp_.Body(), fmt.Errorf("err http code: %d", resp_.StatusCode())
+		return resp_.Bytes(), fmt.Errorf("err http code: %d", resp_.StatusCode())
 	}
 
 	// resp.code 处理
 	if respRaw.HasError() {
-		return resp_.Body(), &respRaw
+		return resp_.Bytes(), &respRaw
 	}
 
 	// 绑定body
@@ -149,13 +149,13 @@ func (c *WeiYunClient) request(protocol, cmdName string, cmd int, data Json, res
 		if protocol == "upload" {
 			jsoniter.Get(respRaw.Data.RspBody.RspMsgBody, "weiyun."+cmdName+"MsgRsp_body").ToVal(&resp)
 		} else {
-			err = c.Client.JSONUnmarshal(respRaw.GetBody(), resp)
+			err = jsoniter.Unmarshal(respRaw.GetBody(), resp)
 			if err != nil {
-				return resp_.Body(), err
+				return resp_.Bytes(), err
 			}
 		}
 	}
-	return resp_.Body(), nil
+	return resp_.Bytes(), nil
 }
 
 func (c *WeiYunClient) RefreshCtoken() error {

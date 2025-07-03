@@ -40,7 +40,7 @@ RESTART:
 	}
 
 	// 显示二维码
-	if err := showQR(resp.Body()); err != nil {
+	if err := showQR(resp.Bytes()); err != nil {
 		return nil, err
 	}
 
@@ -96,21 +96,22 @@ type WeiXinRefreshTokenData struct {
 // 微信刷新Token
 func (c *WeiYunClient) WeiXinRefreshToken() (*WeiXinRefreshTokenData, error) {
 	var resp WeiXinRefreshTokenData
-	resp_, err := c.Client.R().
+	req := c.Client.R().
 		SetQueryParams(map[string]string{
 			"grant_type":    "refresh_token",
 			"appid":         GetCookieValue("wy_appid", c.GetCookies()),
 			"refresh_token": GetCookieValue("refresh_token", c.GetCookies()),
 		}).
-		ForceContentType("application/json; charset=UTF-8").
-		SetResult(&resp).
+		SetResult(&resp)
+	req.ForceResponseContentType = "application/json; charset=UTF-8"
+	resp_, err := req.
 		Get("https://api.weixin.qq.com/sns/oauth2/refresh_token")
 	if err != nil {
 		return nil, err
 	}
 
-	if jsoniter.Get(resp_.Body(), "errcode").ToInt() != 0 {
-		return nil, &Resp{Code: jsoniter.Get(resp_.Body(), "errcode").ToInt(), Msg: jsoniter.Get(resp_.Body(), "errmsg").ToString()}
+	if jsoniter.Get(resp_.Bytes(), "errcode").ToInt() != 0 {
+		return nil, &Resp{Code: jsoniter.Get(resp_.Bytes(), "errcode").ToInt(), Msg: jsoniter.Get(resp_.Bytes(), "errmsg").ToString()}
 	}
 	cks := c.GetCookies()
 	SetCookieValue("openid", resp.Openid, cks)
@@ -181,7 +182,7 @@ RESTART:
 		return nil, err
 	}
 
-	if err := showQR(resp.Body()); err != nil {
+	if err := showQR(resp.Bytes()); err != nil {
 		return nil, err
 	}
 

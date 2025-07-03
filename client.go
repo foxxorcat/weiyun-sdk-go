@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"net/url"
 
-	"github.com/go-resty/resty/v2"
+	"resty.dev/v3"
 )
 
 var baseUrl, _ = url.Parse("https://www.weiyun.com")
@@ -80,5 +80,5 @@ func (c *WeiYunClient) GetCookies() []*http.Cookie {
 }
 
 func (c *WeiYunClient) GetCookieJar() http.CookieJar {
-	return c.Client.GetClient().Jar
+	return c.Client.CookieJar()
 }
