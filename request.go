@@ -30,11 +30,18 @@ func NewBody(cmdName string, data, tokenInfo Json) Json {
 }
 
 func NewHeader(cmd int, tokenInfo Json) Json {
+	wx_openid := tokenInfo["openid"]
+	if wx_openid == "" {
+		wx_openid = tokenInfo["minico_openid"]
+	}
+
 	json := Json{
-		"seq":       time.Now().UnixNano(),
+		"seq":       time.Now().Unix(),
 		"cmd":       cmd,
-		"wx_openid": tokenInfo["openid"],
+		"wx_openid": wx_openid,
+		"qq_openid": tokenInfo["qq_openid"],
 		"user_flag": tokenInfo["token_type"],
+		"env_id":    tokenInfo["env_id"],
 
 		"type":          1,
 		"appid":         30013,
@@ -46,6 +53,25 @@ func NewHeader(cmd int, tokenInfo Json) Json {
 	return json
 }
 
+func NewUploadJson(cmdName string, cmd int, data Json) Json {
+	return Json{
+		"req_header": Json{
+			"cmd":           cmd,
+			"appid":         30013,
+			"major_version": 3,
+			"minor_version": 0,
+			"fix_version":   0,
+			"version":       3,
+			"user_flag":     0,
+		},
+		"req_body": Json{
+			"ReqMsg_body": Json{
+				"weiyun." + cmdName + "MsgReq_body": data,
+			},
+		},
+	}
+}
+
 func (c *WeiYunClient) request(protocol, cmdName string, cmd int, data Json, resp any, opts ...RestyOption) ([]byte, error) {
 	tokenInfo := c.ParseTokenInfo()
 	req := c.Client.R().SetQueryParams(map[string]string{
@@ -54,7 +80,10 @@ func (c *WeiYunClient) request(protocol, cmdName string, cmd int, data Json, res
 		"cmd":  strconv.Itoa(cmd),
 	})
 
-	if protocol == "upload" {
+	switch protocol {
+	case "preUpload":
+		req.SetBody(NewUploadJson(cmdName, cmd, data))
+	case "upload":
 		// 取出后删除
 		var fileReader io.Reader
 		if data != nil {
@@ -69,22 +98,7 @@ func (c *WeiYunClient) request(protocol, cmdName string, cmd int, data Json, res
 		formData := bytes.NewBuffer(make([]byte, 0, 1024*1024+4096))
 		formData.WriteString("--" + boundary + "\r\n")
 		formData.WriteString("Content-Disposition: form-data; name=\"json\"\r\n\r\n")
-		formData.WriteString(MustJsonMarshalToString(Json{
-			"req_header": Json{
-				"cmd":           cmd,
-				"appid":         30013,
-				"major_version": 3,
-				"minor_version": 0,
-				"fix_version":   0,
-				"version":       0,
-				"user_flag":     0,
-			},
-			"req_body": Json{
-				"ReqMsg_body": Json{
-					"weiyun." + cmdName + "MsgReq_body": data,
-				},
-			},
-		}))
+		formData.WriteString(MustJsonMarshalToString(NewUploadJson(cmdName, cmd, data)))
 		if fileReader != nil {
 			formData.WriteString("\r\n--" + boundary + "\r\n")
 			formData.WriteString("Content-Disposition: form-data; name=\"upload\"; filename=\"blob\"\r\n")
@@ -96,7 +110,7 @@ func (c *WeiYunClient) request(protocol, cmdName string, cmd int, data Json, res
 		formData.WriteString("\r\n--" + boundary + "--\r\n")
 
 		req.SetBody(formData).SetHeader("Content-Type", "multipart/form-data; boundary="+boundary)
-	} else {
+	default:
 		req.SetBody(Json{
 			"req_header": MustJsonMarshalToString(NewHeader(cmd, tokenInfo)),
 			"req_body":   MustJsonMarshalToString(NewBody(cmdName, data, tokenInfo)),
@@ -113,12 +127,20 @@ func (c *WeiYunClient) request(protocol, cmdName string, cmd int, data Json, res
 		err     error
 	)
 
-	if protocol == "upload" {
+	switch protocol {
+	case "preUpload":
+		var resp Resp2
+		resp_, err = req.SetResult(&resp).Post("https://www.weiyun.com/api/v3/ftn_pre_upload")
+		if err != nil {
+			return nil, err
+		}
+		resp.ToResp(&respRaw)
+	case "upload":
 		resp_, err = req.SetResult(&respRaw.Data).Post("https://upload.weiyun.com/ftnup_v2/weiyun")
 		if err != nil {
 			return nil, err
 		}
-	} else {
+	default:
 		resp_, err = req.
 			SetPathParams(map[string]string{
 				"protocol": protocol,
@@ -146,9 +168,12 @@ func (c *WeiYunClient) request(protocol, cmdName string, cmd int, data Json, res
 
 	// 绑定body
 	if resp != nil {
-		if protocol == "upload" {
+		switch protocol {
+		case "preUpload":
+			jsoniter.Get(respRaw.Data.RspBody.RspMsgBody, "weiyunPreUploadMsgRsp_body").ToVal(&resp)
+		case "upload":
 			jsoniter.Get(respRaw.Data.RspBody.RspMsgBody, "weiyun."+cmdName+"MsgRsp_body").ToVal(&resp)
-		} else {
+		default:
 			err = jsoniter.Unmarshal(respRaw.GetBody(), resp)
 			if err != nil {
 				return resp_.Bytes(), err
@@ -183,7 +208,7 @@ func (c *WeiYunClient) Request(protocol, name string, cmd int, data Json, resp a
 		if atomic.CompareAndSwapInt32(&c.flag, 0, 1) {
 			err2 := c.RefreshCtoken()
 			// 如果是微信登录，尝试刷新Token
-			if errors.Is(err2, ErrCookieExpiration) && c.LoginType() == 1 {
+			if errors.Is(err2, ErrCookieExpiration) && (c.LoginType() == AccountTypeWeixin || c.LoginType() == AccountTypeWeixinOpenID) {
 				_, err2 = c.WeiXinRefreshToken()
 				if err2 == nil {
 					// 验证Token刷新
@@ -223,6 +248,10 @@ func (c *WeiYunClient) WeiyunFileLibClientRequest(name string, cmd int, data Jso
 
 func (c *WeiYunClient) UploadRequest(name string, cmd int, data Json, resp any, opts ...RestyOption) ([]byte, error) {
 	return c.Request("upload", name, cmd, data, resp, opts...)
+}
+
+func (c *WeiYunClient) PreUploadRequest(name string, cmd int, data Json, resp any, opts ...RestyOption) ([]byte, error) {
+	return c.Request("preUpload", name, cmd, data, resp, opts...)
 }
 
 func (c *WeiYunClient) WeiyunSafeBoxRequest(name string, cmd int, data Json, resp any, opts ...RestyOption) ([]byte, error) {
