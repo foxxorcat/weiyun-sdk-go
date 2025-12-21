@@ -470,7 +470,7 @@ func (c *WeiYunClient) PreUpload(ctx context.Context, param UpdloadFileParam, op
 	}
 
 	var resp PreUploadData
-	_, err = c.UploadRequest("PreUpload", 247120, paramJson, &resp, append([]RestyOption{func(request *resty.Request) { request.SetContext(ctx) }}, opts...)...)
+	_, err = c.PreUploadRequest("PreUpload", 247120, paramJson, &resp, append([]RestyOption{func(request *resty.Request) { request.SetContext(ctx) }}, opts...)...)
 	if err != nil {
 		return nil, err
 	}

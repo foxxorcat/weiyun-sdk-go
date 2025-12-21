@@ -345,21 +345,45 @@ func (c *WeiYunClient) QQFastLogin(ctx context.Context, qq string) ([]*http.Cook
 	}
 }
 
-// 2:wx 1:qq 0:not login
-func (c *WeiYunClient) LoginType() int8 {
+const (
+	AccountTypeQQ           = "qq"
+	AccountTypeWeixin       = "weixin"
+	AccountTypeWeixinOpenID = "weixin_openid"
+	AccountTypeQQOpenID     = "qq_openid"
+	AccountTypeUnknown      = "unknown"
+)
+
+func (c *WeiYunClient) LoginType() string {
 	cks := c.GetCookies()
-	if GetCookieValue("wy_appid", cks) != "" {
-		return 2
-	} else if GetCookieValue("p_skey", cks) != "" {
-		return 1
+	wyUf := GetCookieValue("wy_uf", cks)
+	weiyunWxOpenID := GetCookieValue("weiyun_wx_openid", cks)
+	weiyunQqOpenID := GetCookieValue("weiyun_qq_openid", cks)
+
+	// 1. 微信OpenID类型（wy_uf=2且有微信OpenID）
+	if wyUf == "2" && weiyunWxOpenID != "" {
+		return AccountTypeWeixinOpenID
 	}
-	return 0
+	// 2. QQ OpenID类型（wy_uf=2且有QQ OpenID）
+	if wyUf == "2" && weiyunQqOpenID != "" {
+		return AccountTypeQQOpenID
+	}
+	// 3. 微信类型（wy_uf=1）
+	if wyUf == "1" {
+		return AccountTypeWeixin
+	}
+	// 4. QQ类型（wy_uf=0/空）
+	if wyUf == "0" || wyUf == "" {
+		return AccountTypeQQ
+	}
+	return AccountTypeUnknown
 }
 
 func (c *WeiYunClient) ParseTokenInfo() Json {
-	// 微信登录
 	cks := c.GetCookies()
-	if c.LoginType() == 2 {
+	loginType := c.LoginType()
+
+	switch loginType {
+	case AccountTypeWeixin:
 		return Json{
 			"token_type":      1,
 			"openid":          GetCookieValue("openid", cks),
@@ -368,13 +392,19 @@ func (c *WeiYunClient) ParseTokenInfo() Json {
 			"login_key_type":  192,
 			"login_key_value": GetCookieValue("access_token", cks),
 		}
-	}
-	// qq登录
-	return Json{
-		"openid": "",
-
-		"token_type":      0,
-		"login_key_type":  27,
-		"login_key_value": GetCookieValue("p_skey", cks),
+	case AccountTypeQQ:
+		return Json{
+			"token_type":      0,
+			"login_key_type":  27,
+			"login_key_value": GetCookieValue("p_skey", cks),
+			"openid":          "",
+		}
+	case AccountTypeWeixinOpenID, AccountTypeQQOpenID:
+		return Json{
+			"token_type":     3,
+			"login_key_type": 1540,
+		}
+	default:
+		return Json{}
 	}
 }

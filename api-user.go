@@ -24,6 +24,7 @@ func (c *WeiYunClient) DiskUserInfoGet(opts ...RestyOption) (*DiskUserInfoGetDat
 		"is_get_high_speed_flow_info": false,
 		"is_get_weiyun_flag":          false,
 		"is_get_space_clean_info":     false,
+		"is_get_user_reward_info":     false,
 	}
 	var resp DiskUserInfoGetData
 	_, err := c.WeiyunQdiskClientRequest("DiskUserInfoGet", 2201, param, &resp, opts...)

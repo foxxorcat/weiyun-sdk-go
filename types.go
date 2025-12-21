@@ -22,6 +22,24 @@ type RespHeader struct {
 	Seq int64 `json:"seq"`
 }
 
+type Resp2 struct {
+	Code int    `json:"ret"`
+	Msg  string `json:"msg"`
+
+	Result *struct {
+		RspHeader RespHeader `json:"rsp_header"`
+		RspBody   struct {
+			RspMsgBody json.RawMessage `json:"RspMsg_body"`
+		} `json:"rsp_body"`
+	} `json:"result"`
+}
+
+func (r *Resp2) ToResp(rr *Resp) {
+	rr.Code = r.Code
+	rr.Msg = r.Msg
+	rr.Data = r.Result
+}
+
 type Resp struct {
 	Code int    `json:"ret"`
 	Msg  string `json:"msg"`
@@ -32,22 +50,32 @@ type Resp struct {
 			RspMsgBody json.RawMessage `json:"RspMsg_body"`
 		} `json:"rsp_body"`
 	} `json:"data"`
+
+	Result *struct {
+		RspHeader RespHeader `json:"rsp_header"`
+		RspBody   struct {
+			RspMsgBody json.RawMessage `json:"RspMsg_body"`
+		} `json:"rsp_body"`
+	} `json:"result"`
 }
 
 func (r *Resp) HasError() bool {
-	return r.Data.RspHeader.Retcode != 0 || r.Code != 0
+	return (r.Data != nil && r.Data.RspHeader.Retcode != 0) || r.Code != 0
 }
 
 func (r *Resp) Error() string {
+	if r.Data != nil && r.Data.RspHeader.Retcode != 0 {
+		return fmt.Sprintf("cmd:%d, cmdName:%s, seq:%d, errcode:%d, errmsg:%s",
+			r.Data.RspHeader.Cmd,
+			r.Data.RspHeader.CmdName,
+			r.Data.RspHeader.Seq,
+			r.Data.RspHeader.Retcode,
+			r.Data.RspHeader.Retmsg)
+	}
 	if r.Msg != "" {
 		return fmt.Sprintf("errcode:%d, errmsg:%s", r.Code, r.Msg)
 	}
-	return fmt.Sprintf("cmd:%d, cmdName:%s, seq:%d, errcode:%d, errmsg:%s",
-		r.Data.RspHeader.Cmd,
-		r.Data.RspHeader.CmdName,
-		r.Data.RspHeader.Seq,
-		r.Data.RspHeader.Retcode,
-		r.Data.RspHeader.Retmsg)
+	return "Unknown error, Structural changes"
 }
 
 func (r *Resp) GetHeader() RespHeader {
